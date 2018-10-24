@@ -87,6 +87,9 @@ def bpe_to_document(path, out_path, space_symbol='</w>', bpe2idx={}, merge_info=
 			
 			if (i+1) % 100 == 0:
 				print('data:', path, '\trow:', i+1, '\ttime:', time.time()-start)
+				save_dictionary('./cache.npy', cache)
+				print('save updated cache ./cache.npy', 'size:', len(cache), 'added:', len(cache)-cache_len, '\n')
+		
 
 			for word in sentence.split():
 				# "abc" => "a b c space_symbol"
@@ -106,8 +109,6 @@ def bpe_to_document(path, out_path, space_symbol='</w>', bpe2idx={}, merge_info=
 	o.close()
 	print('save', out_path)
 
-	save_dictionary('./cache.npy', cache)
-	print('save updated cache ./cache.npy', 'size:', len(cache), 'added:', len(cache)-cache_len, '\n')
 
 
 
