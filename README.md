@@ -1,4 +1,4 @@
-# Python-Bype_Pair_Encoding
+# Python-Byte_Pair_Encoding
 Byte Pair Encoding (BPE)
 
 ## Paper
