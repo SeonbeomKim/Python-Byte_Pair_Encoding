@@ -8,22 +8,11 @@ import numpy as np # 1.15
 import pandas as pd # 0.23
 import csv
 import time
+import os
 
 # word:"abc" => "a b c space_symbol"
 def word_split_for_bpe(word, space_symbol='</w>'):
 	return ' '.join(list(word)) + ' ' + space_symbol
-
-
-# chunksize씩 처리하도록 구현하자.
-def read_document(path):
-	document = []
-
-	with open(path, 'r', encoding='utf-8') as f:
-		for i, sentence in enumerate(f):
-			if sentence == '\n' or sentence == ' ' or sentence == '':
-				break
-			document.append(sentence.split())
-	return document
 
 
 # word frequency 추출.
@@ -32,10 +21,12 @@ def get_word_frequency_dict_from_document(path, space_symbol='</w>', top_k=None)
 
 	with open(path, 'r', encoding='utf-8') as f:
 		for i, sentence in enumerate(f):
+			# EOF check
 			if sentence == '\n' or sentence == ' ' or sentence == '':
 				break
 			
 			for word in sentence.split():					
+				# "abc" => "a b c space_symbol"
 				split_word = word_split_for_bpe(word, space_symbol)
 				
 				# word frequency
@@ -58,7 +49,7 @@ def get_word_frequency_dict_from_document(path, space_symbol='</w>', top_k=None)
 	
 		return top_k_word_frequency_dict
 
-
+# merge two dictionary
 def merge_dictionary(dic_a, dic_b):
 	for i in dic_b:
 		if i in dic_a:
@@ -66,50 +57,6 @@ def merge_dictionary(dic_a, dic_b):
 		else:
 			dic_a[i] = dic_b[i]
 	return dic_a
-
-
-# 문서를 읽고, bpe 적용. cache 사용할것.
-def bpe_to_document(path, out_path, space_symbol='</w>', bpe2idx={}, merge_info=None, cache={}):
-	start = time.time()
-
-	cache_len = len(cache)
-
-	# write file
-	o = open(out_path, 'w', newline='')
-	wr = csv.writer(o, delimiter=' ')
-
-	#bpe = []
-	with open(path, 'r', encoding='utf-8') as f:
-		for i, sentence in enumerate(f):
-			row = []
-			if sentence == '\n' or sentence == ' ' or sentence == '':
-				break
-			
-			if (i+1) % 100 == 0:
-				print('data:', path, '\trow:', i+1, '\ttime:', time.time()-start)
-				save_dictionary('./cache.npy', cache)
-				print('save updated cache ./cache.npy', 'size:', len(cache), 'added:', len(cache)-cache_len, '\n')
-		
-
-			for word in sentence.split():
-				# "abc" => "a b c space_symbol"
-				split_word = word_split_for_bpe(word, space_symbol)
-				
-				# merge_info를 이용해서 merge.  "a b c space_symbol" ==> "ab cspace_symbol"
-				merge = merge_a_word(merge_info, split_word, cache)
-				
-				# 안합쳐진 부분은 다른 단어로 인식해서 공백기준 split 처리해서 sentence에 extend
-				row.extend(merge.split())
-		
-			## eos 추가. 
-			#row.append(eos_symbol)
-			#bpe.append(row)
-			wr.writerow(row)
-
-	o.close()
-	print('save', out_path)
-
-
 
 
 # 2-gram frequency table 추출.
@@ -148,18 +95,18 @@ def merge_word2idx(best_pair, word_frequency_dict):
 # from bpe to idx
 def make_bpe2idx(word_frequency_dict):
 	bpe2idx = {
+				'</p>':-1,  # embedding_lookup -1 is 0
 				'UNK':0,
 				'</g>':1, #go
-				'</e>':2, #eos
-				'</p>':3
+				'</e>':2 #eos
 			}
-	idx = 4
+	idx = 3
 	
 	idx2bpe = {
+				-1:'</p>',
 				0:'UNK',
 				1:'</g>', #go
-				2:'</e>', #eos
-				3:'</p>'
+				2:'</e>' #eos
 			}
 	
 	for word in word_frequency_dict:
@@ -235,9 +182,51 @@ def merge_a_word(merge_info, word, cache={}):
 def save_dictionary(path, dictionary):
 	np.save(path, dictionary)
 
-def load_dictionary(path, encoding='utf-8'):
+def load_dictionary(path):
 	data = np.load(path, encoding='bytes').item()
 	return data
+
+
+# 문서를 읽고, bpe 적용. cache 사용할것. apply_bpe에서 사용.
+def bpe_to_document(path, out_path, space_symbol='</w>', bpe2idx={}, merge_info=None, cache={}):
+	start = time.time()
+
+	cache_len = len(cache)
+
+	# write file
+	o = open(out_path, 'w', newline='', encoding='utf-8')
+	wr = csv.writer(o, delimiter=' ')
+
+	#bpe = []
+	with open(path, 'r', encoding='utf-8') as f:
+		for i, sentence in enumerate(f):
+			row = []
+			if sentence == '\n' or sentence == ' ' or sentence == '':
+				break
+			
+			if (i+1) % 100 == 0:
+				print('data:', path, '\trow:', i+1, '\ttime:', time.time()-start)
+				save_dictionary('./cache.npy', cache)
+				print('save updated cache ./cache.npy', 'size:', len(cache), 'added:', len(cache)-cache_len, '\n')
+		
+
+			for word in sentence.split():
+				# "abc" => "a b c space_symbol"
+				split_word = word_split_for_bpe(word, space_symbol)
+				
+				# space_symbol: </w>
+				# merge_info를 이용해서 merge.  "a b c </w>" ==> "ab c</w>"
+				merge = merge_a_word(merge_info, split_word, cache)
+				
+				# 안합쳐진 부분은 다른 단어로 인식해서 공백기준 split 처리해서 sentence에 extend
+				row.extend(merge.split())
+
+
+			wr.writerow(row)
+
+	o.close()
+	print('save', out_path)
+
 
 
 def learn_bpe(path_list, space_symbol='</w>', top_k=None, num_merges=1):
@@ -271,28 +260,34 @@ def learn_bpe(path_list, space_symbol='</w>', top_k=None, num_merges=1):
 
 
 
-def apply_bpe(path, out_path, space_symbol='</w>', pad_symbol='</p>', eos_symbol='</e>'):
+def apply_bpe(path_list, out_list, out_path_folder, space_symbol='</w>', pad_symbol='</p>'):
+	if not os.path.exists(out_path_folder):
+		print("create out_path directory")
+		os.makedirs(out_path_folder)
+
 	print('load bpe info', '\n')
 	bpe2idx = load_dictionary('./bpe2idx.npy')
 	merge_info = load_dictionary('./merge_info.npy')
 	cache = load_dictionary('./cache.npy')
 
-	print('apply bpe')
-	bpe_to_document(
-				path=path, 
-				out_path=out_path,
-				space_symbol=space_symbol, 
-				bpe2idx=bpe2idx,
-				merge_info=merge_info, 
-				cache=cache
-			)
+	for i in range(len(path_list)):
+		path = path_list[i]
+		out_path = out_list[i]
+
+		print('apply bpe', path, out_path)
+		bpe_to_document(
+					path=path, 
+					out_path=out_path_folder+out_path,
+					space_symbol=space_symbol, 
+					bpe2idx=bpe2idx,
+					merge_info=merge_info, 
+					cache=cache
+				)
 
 
-#except_symbol = {'&apos;':"""'""", '@-@': '-', '&quot;':'''"''', '&amp;':'&'}
 
-
-path_list = ["../dataset/corpus.tc.en/corpus.tc.en", "../dataset/corpus.tc.de/corpus.tc.de"]
-out_path = ['./bpe_wmt17.en', './bpe_wmt17.de']
-#learn_bpe(path_list, space_symbol='</w>', top_k=40, num_merges=31)
-apply_bpe(path_list[0], out_path[0], space_symbol='</w>', pad_symbol='</p>', eos_symbol='</e>')
-apply_bpe(path_list[1], out_path[1], space_symbol='</w>', pad_symbol='</p>', eos_symbol='</e>')
+path_list = ["../dataset/corpus.tc.en/corpus.tc.en", "../dataset/corpus.tc.de/corpus.tc.de"] # original data1, data2
+out_list = ['./bpe_wmt17.en', './bpe_wmt17.de'] # bpe_applied_data1, data2
+out_path_folder = './bpe_dataset/'
+learn_bpe(path_list, space_symbol='</w>', top_k=None, num_merges=37000)
+apply_bpe(path_list, out_list, out_path_folder, space_symbol='</w>', pad_symbol='</p>')
