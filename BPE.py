@@ -229,7 +229,7 @@ def bpe_to_document(path, out_path, space_symbol='</w>', bpe2idx={}, merge_info=
 
 
 
-def learn_bpe(path_list, space_symbol='</w>', top_k=None, num_merges=1):
+def learn_bpe(path_list, out_path_folder, space_symbol='</w>', top_k=None, num_merges=1):
 	print('get word frequency dictionary')
 	total_word_frequency_dict = {}
 	for path in path_list:
@@ -249,26 +249,29 @@ def learn_bpe(path_list, space_symbol='</w>', top_k=None, num_merges=1):
 				total_word_frequency_dict, 
 				num_merges=num_merges
 			)#100
-	save_dictionary('./bpe2idx.npy', bpe2idx)
-	save_dictionary('./idx2bpe.npy', idx2bpe)
-	save_dictionary('./merge_info.npy', merge_info)
-	save_dictionary('./cache.npy', cache)
-	print('save ./bpe2idx.npy', 'size:', len(bpe2idx))
-	print('save ./idx2bpe.npy', 'size:', len(idx2bpe))
-	print('save ./merge_info.npy', 'size:', len(merge_info))
-	print('save ./cache.npy', 'size:', len(cache))
-
-
-
-def apply_bpe(path_list, out_list, out_path_folder, space_symbol='</w>', pad_symbol='</p>'):
+	
 	if not os.path.exists(out_path_folder):
 		print("create out_path directory")
 		os.makedirs(out_path_folder)
 
+	save_dictionary(out_path_folder+'bpe2idx.npy', bpe2idx)
+	save_dictionary(out_path_folder+'idx2bpe.npy', idx2bpe)
+	save_dictionary(out_path_folder+'merge_info.npy', merge_info)
+	save_dictionary(out_path_folder+'cache.npy', cache)
+	print('save bpe2idx.npy', 'size:', len(bpe2idx))
+	print('save idx2bpe.npy', 'size:', len(idx2bpe))
+	print('save merge_info.npy', 'size:', len(merge_info))
+	print('save cache.npy', 'size:', len(cache))
+
+
+
+def apply_bpe(path_list, out_list, out_path_folder, space_symbol='</w>', pad_symbol='</p>'):
+
+
 	print('load bpe info', '\n')
-	bpe2idx = load_dictionary('./bpe2idx.npy')
-	merge_info = load_dictionary('./merge_info.npy')
-	cache = load_dictionary('./cache.npy')
+	bpe2idx = load_dictionary(out_path_folder+'bpe2idx.npy')
+	merge_info = load_dictionary(out_path_folder+'merge_info.npy')
+	cache = load_dictionary(out_path_folder+'cache.npy')
 
 	for i in range(len(path_list)):
 		path = path_list[i]
@@ -289,5 +292,19 @@ def apply_bpe(path_list, out_list, out_path_folder, space_symbol='</w>', pad_sym
 path_list = ["../dataset/corpus.tc.en/corpus.tc.en", "../dataset/corpus.tc.de/corpus.tc.de"] # original data1, data2
 out_list = ['./bpe_wmt17.en', './bpe_wmt17.de'] # bpe_applied_data1, data2
 out_path_folder = './bpe_dataset/'
-learn_bpe(path_list, space_symbol='</w>', top_k=None, num_merges=37000)
+
+learn_bpe(path_list, out_path_folder, space_symbol='</w>', top_k=None, num_merges=37000)
 apply_bpe(path_list, out_list, out_path_folder, space_symbol='</w>', pad_symbol='</p>')
+
+test_path_list = [
+			'dataset/dev.tar/newstest2014.tc.en',
+			'dataset/dev.tar/newstest2015.tc.en',
+			'dataset/dev.tar/newstest2016.tc.en',
+		]
+test_out_list = [
+			'./bpe_newstest2014.en', 
+			'./bpe_newstest2015.en', 
+			'./bpe_newstest2016.en', 
+		] 
+		
+apply_bpe(test_path_list, test_out_list, out_path_folder, space_symbol='</w>', pad_symbol='</p>')
