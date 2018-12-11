@@ -17,3 +17,6 @@ Byte Pair Encoding (BPE)
             * cache.npy
             * merge_info.npy
      
+## dataset/
+   * WMT17 example
+   
