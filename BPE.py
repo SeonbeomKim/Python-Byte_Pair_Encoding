@@ -3,7 +3,6 @@
 
 import re, collections
 import numpy as np # 1.15
-import pandas as pd # 0.23
 import csv
 import time
 import os
@@ -134,7 +133,7 @@ def make_bpe2idx(word_frequency_dict):
 
 
 def merge_a_word(merge_info, word, cache={}):
-	# merge_info: OrderedDict {('s','</w>'):0, ('e', '</w>'):1 ... }
+	# merge_info: list
 	# word: "c e m e n t </w>" => "ce m e n t<\w>" 되어야 함.
 	
 	if len(word.split()) == 1:
@@ -175,17 +174,21 @@ def bpe_to_document(path, out_path, space_symbol='</w>', merge_info=None, cache=
 			if sentence[-1] == '\n':
 				sentence = sentence[:-1]			
 
+			before_cache_len = len(cache)
 			for word in sentence.split():
 				# "abc" => "a b c space_symbol"
 				split_word = word_split_for_bpe(word, space_symbol)
 				
-				# space_symbol: </w>
 				# merge_info를 이용해서 merge.  "a b c </w>" ==> "ab c</w>"
 				merge = merge_a_word(merge_info, split_word, cache)
 				
 				# 안합쳐진 부분은 다른 단어로 인식해서 공백기준 split 처리해서 sentence에 extend
 				row.extend(merge.split())
 			wr.writerow(row)
+
+			current_cache_len = len(cache)
+			if current_cache_len > before_cache_len:
+				print('line:', i+1, 'total cache:', current_cache_len, 'added:', current_cache_len-before_cache_len)
 
 	o.close()
 
