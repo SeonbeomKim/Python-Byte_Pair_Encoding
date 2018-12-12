@@ -167,7 +167,7 @@ def merge_a_word(merge_info, word, cache={}):
 
 
 # 문서를 읽고, bpe 적용. cache 사용할것. apply_bpe에서 사용.
-def bpe_to_document(path, out_path, space_symbol='</w>', merge_info=None, cache={}):
+def _apply_bpe(path, out_path, space_symbol='</w>', merge_info=None, cache={}):
 	start = time.time()
 
 	cache_len = len(cache)
@@ -197,9 +197,10 @@ def bpe_to_document(path, out_path, space_symbol='</w>', merge_info=None, cache=
 				row.extend(merge.split())
 			wr.writerow(row)
 
-			current_cache_len = len(cache)
-			if current_cache_len > before_cache_len:
-				print('data_path:', path, 'line:', i+1, 'total cache:', current_cache_len, 'added:', current_cache_len-before_cache_len)
+			if (i+1) % 500 == 0:
+				current_cache_len = len(cache)
+				print('out_path:', out_path, 'line:', i+1, 'total cache:', current_cache_len, 'added:', current_cache_len-cache_len)
+				cache_len = current_cache_len
 
 	o.close()
 
@@ -335,7 +336,7 @@ def apply_bpe(path_list, out_bpe_path, out_list, npy_path, space_symbol='</w>', 
 		out_path = out_list[i]
 
 		print('apply bpe', path, out_path)
-		bpe_to_document(
+		_apply_bpe(
 				path=path, 
 				out_path=out_bpe_path+out_path,
 				space_symbol=space_symbol, 
@@ -343,6 +344,9 @@ def apply_bpe(path_list, out_bpe_path, out_list, npy_path, space_symbol='</w>', 
 				cache=cache
 			)
 		print('save ok', out_path)
+		save_data(npy_path+'cache.npy', cache)
+		print('save updated cache ./cache.npy', 'size:', len(cache))
+
 	print()
 
 
