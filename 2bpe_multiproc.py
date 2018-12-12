@@ -207,9 +207,7 @@ def get_bpe_information(word_frequency_dict, num_merges=37000, multi_proc=None):
 	merge_info = [] # 합친 정보를 기억하고있다가 다른 데이터에 적용.
 	word_frequency = list(word_frequency_dict.items())
 	del word_frequency_dict
-	#word_frequency_dict = collections.OrderedDict(word_frequency_dict) # 입력 순서 유지(cache 구할 때 순서 맞추려고)
 	cache_list = word_frequency.copy() # 나중에 word -> bpe 처리 할 때, 빠르게 하기 위함.
-	#print(cache)
 
 	if multi_proc is not None:
 		import multiprocessing as mp
@@ -224,6 +222,7 @@ def get_bpe_information(word_frequency_dict, num_merges=37000, multi_proc=None):
 		pool = mp.Pool(process)
 
 	for i in tqdm(range(num_merges), ncols=50):
+		# 2gram별 빈도수 추출
 		if multi_proc is not None:		
 			get_stats_results = pool.map(
 					get_stats, 
@@ -235,12 +234,15 @@ def get_bpe_information(word_frequency_dict, num_merges=37000, multi_proc=None):
 				pairs = merge_dictionary(pairs, dic)
 				
 		else:
-			pairs = get_stats(word_frequency) # 2gram별 빈도수 추출. #0.73058초
+			pairs = get_stats(word_frequency) 
+		#######
 
-
+		# 가장 높은 빈도의 2gram 선정
 		best = check_merge_info(pairs) # 가장 높은 빈도의 2gram 선정
 		merge_info.append(best) #merge 하는데 사용된 정보 저장.
-				
+		#######
+
+		# 가장 높은 빈도의 2gram으로 merge
 		if multi_proc is not None:		
 			merge_results = pool.map(
 					merge_bpe_word, 
@@ -254,6 +256,7 @@ def get_bpe_information(word_frequency_dict, num_merges=37000, multi_proc=None):
 				word_frequency.extend(merge_results[order])
 		else:
 			word_frequency = merge_bpe_word((best, word_frequency)) # 가장 높은 빈도의 2gram을 합침.
+		######
 
 
 	if multi_proc is not None:		
@@ -267,11 +270,10 @@ def get_bpe_information(word_frequency_dict, num_merges=37000, multi_proc=None):
 		key = cache_list[i][0]
 		value = word_frequency[i][0]
 		cache[key] = value
-		#print(key, cache[key])
+		print(key, cache[key])
 
 
 	# voca 추출.
-	print(word_frequency)
 	bpe2idx, idx2bpe = make_bpe2idx(word_frequency)
 	return bpe2idx, idx2bpe, merge_info, cache # dict, dict, list, dict
 
