@@ -51,7 +51,6 @@ def get_word_frequency_dict_from_document(path, space_symbol='</w>'):
 	return word_frequency_dict
 
 
-
 # merge two dictionary
 def merge_dictionary(dic_a, dic_b):
 	for i in dic_b:
@@ -94,15 +93,45 @@ def merge_bpe_word(best_pair_and_word_frequency_list):
 	bigram = re.escape(' '.join(best_pair))
 	p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
 	for word, freq in word_frequency:
-		# 만약 ''.join(best_pair): r</w> 이고, word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
-		w_out = p.sub(''.join(best_pair), word)
-		v_out.append( (w_out, freq) )
-
+		best_pair_to_string = ''.join(best_pair)
+		if best_pair_to_string in ''.join(word):
+			# 만약 ''.join(best_pair): r</w> 이고, word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
+			w_out = p.sub(best_pair_to_string, word)
+			v_out.append( (w_out, freq) )
+		else:
+			v_out.append( (word, freq) )
 	if len(best_pair_and_word_frequency_list) == 3: # multi proc
 		return (best_pair_and_word_frequency_list[2], v_out) # (multiproc 결과 조합할 순서, 결과)
 	else:
 		return v_out
 
+
+
+
+# from bpe to idx
+def make_bpe2idx(word_frequency_list):
+	bpe2idx = {
+			'</p>':0,
+			'UNK':1,
+			'</g>':2, #go
+			'</e>':3 #eos
+		}	
+	idx2bpe = {
+			0:'</p>',
+			1:'UNK',
+			2:'</g>', #go
+			3:'</e>' #eos
+		}
+	idx = 4
+	
+	for word, _ in word_frequency_list: # word, freq
+		for bpe in word.split():
+			# bpe가 bpe2idx에 없는 경우만 idx 부여.
+			if bpe not in bpe2idx:
+				bpe2idx[bpe] = idx
+				idx2bpe[idx] = bpe
+				idx += 1
+	return bpe2idx, idx2bpe
 
 
 def merge_a_word(merge_info, word, cache={}):
@@ -120,54 +149,18 @@ def merge_a_word(merge_info, word, cache={}):
 		for info in merge_info:
 			if bpe_word.count(' ') == 0:
 				break
+			info_to_string = ''.join(info)
+			if info_to_string in ''.join(bpe_word):
 
-			bigram = re.escape(' '.join(info))
-			p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
+				bigram = re.escape(' '.join(info))
+				p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
 
-			# 만약 ''.join(info): r</w> 이고, bpe_word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
-			bpe_word = p.sub(''.join(info), bpe_word)
+				# 만약 info_to_string: r</w> 이고, bpe_word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
+				bpe_word = p.sub(info_to_string, bpe_word)
 
 		# cache upate
 		cache[word] = bpe_word
 		return bpe_word
-
-
-def make_bpe2idx(word_frequency_list, npy_path):
-	word_frequency_dict = {}
-	for word, freq in word_frequency_list:
-		# ex: ('B e it r a g</w>', 8)
-		split = word.split() # [B e it r a g</w>]
-		for bpe in split:
-			if bpe not in word_frequency_dict:
-				word_frequency_dict[bpe] = freq
-			else:
-				word_frequency_dict[bpe] += freq
-
-	sorted_voca = sorted(tuple(word_frequency_dict.items()), key=lambda x: x[1], reverse=True)
-
-	bpe2idx = {
-			'</p>':0,
-			'UNK':1,
-			'</g>':2, #go
-			'</e>':3 #eos
-		}	
-	idx2bpe = {
-			0:'</p>',
-			1:'UNK',
-			2:'</g>', #go
-			3:'</e>' #eos
-		}
-	idx = 4
-
-	with open(npy_path+'sorted_voca.txt', 'w', encoding='utf-8') as o:
-		for voca, freq in sorted_voca:
-			o.write(str(voca) + ' ' + str(freq) + '\n')
-			bpe2idx[voca] = idx
-			idx2bpe[idx] = voca
-			idx += 1
-
-	return bpe2idx, idx2bpe
-
 
 
 # 문서를 읽고, bpe 적용. cache 사용할것. apply_bpe에서 사용.
@@ -201,7 +194,7 @@ def _apply_bpe(path, out_path, space_symbol='</w>', merge_info=None, cache={}):
 				row.extend(merge.split())
 			wr.writerow(row)
 
-			if (i+1) % 100000 == 0:
+			if (i+1) % 1000000 == 0:
 				current_cache_len = len(cache)
 				print('out_path:', out_path, 'line:', i+1, 'total cache:', current_cache_len, 'added:', current_cache_len-cache_len)
 				cache_len = current_cache_len
@@ -209,7 +202,7 @@ def _apply_bpe(path, out_path, space_symbol='</w>', merge_info=None, cache={}):
 	o.close()
 
 
-def _learn_bpe(word_frequency_dict, npy_path, num_merges=37000, multi_proc=1):
+def _learn_bpe(word_frequency_dict, num_merges=37000, multi_proc=1):
 	#word_frequency_dict = {'l o w </w>' : 1, 'l o w e r </w>' : 1, 'n e w e s t </w>':1, 'w i d e s t </w>':1}
 	
 	merge_info = [] # 합친 정보를 기억하고있다가 다른 데이터에 적용.
@@ -266,15 +259,9 @@ def _learn_bpe(word_frequency_dict, npy_path, num_merges=37000, multi_proc=1):
 			word_frequency = merge_bpe_word((best, word_frequency)) # 가장 높은 빈도의 2gram을 합침.
 		######
 
-	# multiproc close
+
 	if multi_proc > 1:		
 		pool.close()
-
-
-	# make npy
-	if not os.path.exists(npy_path):
-		print("create" + npy_path + "directory")
-		os.makedirs(npy_path)
 
 	# 빠른 변환을 위한 cache 저장. 기존 word를 key로, bpe 결과를 value로.	
 	cache = {}
@@ -283,21 +270,13 @@ def _learn_bpe(word_frequency_dict, npy_path, num_merges=37000, multi_proc=1):
 		value = word_frequency[i][0]
 		cache[key] = value
 
-	save_data(npy_path+'merge_info.npy', merge_info) # list
-	save_data(npy_path+'cache.npy', cache) # dict
-	print('save merge_info.npy', ', size:', len(merge_info))
-	print('save cache.npy', ', size:', len(cache))
-
-	
-	bpe2idx, idx2bpe = make_bpe2idx(word_frequency, npy_path)
-	save_data(npy_path+'bpe2idx.npy', bpe2idx) # dict
-	save_data(npy_path+'idx2bpe.npy', idx2bpe) # dict
-	print('save bpe2idx.npy', ', size:', len(bpe2idx))
-	print('save idx2bpe.npy', ', size:', len(idx2bpe))	
+	# voca 추출.
+	bpe2idx, idx2bpe = make_bpe2idx(word_frequency)
+	return bpe2idx, idx2bpe, merge_info, cache # dict, dict, list, dict
 
 	
 
-def learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=37000, voca_threshold=5, multi_proc=1):
+def learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=37000, multi_proc=1):
 	
 	print('get word frequency dictionary')
 	total_word_frequency_dict = {}
@@ -309,24 +288,32 @@ def learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=37000, voca_t
 		total_word_frequency_dict = merge_dictionary(total_word_frequency_dict, word_frequency_dict)
 
 
-	# 빈도수가 일정 미만인 단어 제외.	
-	total_word_frequency_dict_size = len(total_word_frequency_dict)
-	for item in list(total_word_frequency_dict.items()):
-		if item[1] < voca_threshold: # item[0] is key, item[1] is value
-			del total_word_frequency_dict[item[0]]
-	print('frequency word dict size:', total_word_frequency_dict_size)
-	print('threshold applied frequency word dict size:', len(total_word_frequency_dict), 'removed:', total_word_frequency_dict_size-len(total_word_frequency_dict), '\n')
-
+	'''
+	save_data('./word_frequency_dictionary.npy', total_word_frequency_dict)
+	print('save ./word_frequency_dictionary.npy', 'size:', len(total_word_frequency_dict), '\n')
+	total_word_frequency_dict = load_data('./word_frequency_dictionary.npy', mode='dictionary')
+	'''
 
 	print('learn bpe')
-	_learn_bpe(
+	bpe2idx, idx2bpe, merge_info, cache = _learn_bpe(
 			total_word_frequency_dict, 
-			npy_path=npy_path,
 			num_merges=num_merges,
 			multi_proc=multi_proc
-		)
+		)# dict, dict, list, dict
 
-	print('\n\n\n')
+	if not os.path.exists(npy_path):
+		print("create" + npy_path + "directory")
+		os.makedirs(npy_path)
+
+	save_data(npy_path+'bpe2idx.npy', bpe2idx)
+	save_data(npy_path+'idx2bpe.npy', idx2bpe)
+	save_data(npy_path+'merge_info.npy', merge_info)
+	save_data(npy_path+'cache.npy', cache)
+	print('save bpe2idx.npy', 'size:', len(bpe2idx))
+	print('save idx2bpe.npy', 'size:', len(idx2bpe))
+	print('save merge_info.npy', 'size:', len(merge_info))
+	print('save cache.npy', 'size:', len(cache))
+	print()
 
 
 
@@ -335,15 +322,15 @@ def apply_bpe(path_list, out_bpe_path, out_list, npy_path, space_symbol='</w>', 
 		print("create" + out_bpe_path + "directory")
 		os.makedirs(out_bpe_path)
 
+	print('load bpe info')
 	merge_info = load_data(npy_path+'merge_info.npy')
 	cache = load_data(npy_path+'cache.npy', mode='dictionary')
-	
-	print('apply bpe')
+
 	for i in range(len(path_list)):
 		path = path_list[i]
 		out_path = out_list[i]
 
-		print('path:', path, ', out_path:', out_path)
+		print('apply bpe', path, out_path)
 		_apply_bpe(
 				path=path, 
 				out_path=out_bpe_path+out_path,
@@ -351,9 +338,11 @@ def apply_bpe(path_list, out_bpe_path, out_list, npy_path, space_symbol='</w>', 
 				merge_info=merge_info, 
 				cache=cache
 			)
+		print('save ok', out_path)
 		save_data(npy_path+'cache.npy', cache)
-	print('\n\n\n')
-
+		print('save updated cache ./cache.npy', 'size:', len(cache))
+		print()
+	print()
 
 
 # save directory
@@ -379,13 +368,14 @@ test_out_list = [
 
 # learn and apply
 if __name__ == '__main__':
+	print('20190105_test')
 	# if don't use multiprocessing:
 	# learn_bpe(path_list, npy_path, space_symbol='</w>', top_k=None)
-	# multi_proc: # process,  os.cpu_count(): # cpu processor of current computer
-	
+
+	# multiprocessing, multi_proc: # process,  os.cpu_count(): # cpu processor of current computer
 	# learn bpe from documents
-	learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=35000, voca_threshold=50, multi_proc=os.cpu_count())
-	#learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=30000, voca_threshold=5, multi_proc=os.cpu_count())
+	learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=30000, multi_proc=os.cpu_count())
+	# num_merges:37000 => 40297개, 
 
 	# apply bpe to documents
 	apply_bpe(path_list, out_bpe_path, out_list, npy_path, space_symbol='</w>', pad_symbol='</p>')
