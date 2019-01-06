@@ -31,6 +31,8 @@ def get_word_frequency_dict_from_document(path, space_symbol='</w>'):
 
 	with open(path, 'r', encoding='utf-8') as f:
 		for i, sentence in enumerate(f):
+			if i == 50000:
+				break
 			# EOF check
 			if sentence == '\n' or sentence == ' ' or sentence == '':
 				break
@@ -92,14 +94,16 @@ def merge_bpe_word(best_pair_and_word_frequency_list):
 
 	bigram = re.escape(' '.join(best_pair))
 	p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
+	best_pair_to_string = ''.join(best_pair)
+	best_pair_to_string_with_space = ' '.join(best_pair)
+
 	for word, freq in word_frequency:
-		best_pair_to_string = ''.join(best_pair)
-		if best_pair_to_string in ''.join(word):
-			# 만약 ''.join(best_pair): r</w> 이고, word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
-			w_out = p.sub(best_pair_to_string, word)
+		if best_pair_to_string_with_space in word:
+			w_out = p.sub(best_pair_to_string, word) # 만약 ''.join(best_pair): r</w> 이고, word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
 			v_out.append( (w_out, freq) )
 		else:
 			v_out.append( (word, freq) )
+
 	if len(best_pair_and_word_frequency_list) == 3: # multi proc
 		return (best_pair_and_word_frequency_list[2], v_out) # (multiproc 결과 조합할 순서, 결과)
 	else:
@@ -135,6 +139,36 @@ def make_bpe2idx(word_frequency_list):
 
 
 def merge_a_word(merge_info, word, cache={}):
+	# merge_info: list, ['c', 'e']
+	# word: "c e m e n t </w>" => "ce m e n t<\w>" 되어야 함.
+	
+	#if len(word.split()) == 1:
+	if word.count(' ') == 0:
+		return word
+
+	if word in cache:
+		return cache[word]
+	else:
+		bpe_word = word
+
+		for i, info in enumerate(merge_info):
+			if bpe_word.count(' ') == 0:
+				break
+
+			info_to_string_with_space = ' '.join(info)
+			if info_to_string_with_space in bpe_word:
+				bigram = re.escape(info_to_string_with_space)
+				p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
+
+				# 만약 info_to_string_with_space: 'r </w>' 이고, bpe_word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
+				bpe_word = p.sub(''.join(info), bpe_word)
+
+		# cache upate
+		cache[word] = bpe_word
+		return bpe_word
+
+'''
+def merge_a_word(merge_info, word, cache={}):
 	# merge_info: list
 	# word: "c e m e n t </w>" => "ce m e n t<\w>" 되어야 함.
 	
@@ -146,12 +180,17 @@ def merge_a_word(merge_info, word, cache={}):
 		return cache[word]
 	else:
 		bpe_word = word
-		for info in merge_info:
+		#bpe_word_to_string = ''.join(bpe_word.split())
+		bpe_word_to_string = bpe_word.replace(' ','')
+		for i, info in enumerate(merge_info):
 			if bpe_word.count(' ') == 0:
 				break
 			info_to_string = ''.join(info)
-			if info_to_string in ''.join(bpe_word):
-
+			#print(info, bpe_word)
+			#print(info_to_string, bpe_word_to_string)
+			#print()
+			if info_to_string in bpe_word_to_string:
+				print(info, bpe_word)
 				bigram = re.escape(' '.join(info))
 				p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
 
@@ -161,7 +200,7 @@ def merge_a_word(merge_info, word, cache={}):
 		# cache upate
 		cache[word] = bpe_word
 		return bpe_word
-
+'''
 
 # 문서를 읽고, bpe 적용. cache 사용할것. apply_bpe에서 사용.
 def _apply_bpe(path, out_path, space_symbol='</w>', merge_info=None, cache={}):
@@ -325,6 +364,9 @@ def apply_bpe(path_list, out_bpe_path, out_list, npy_path, space_symbol='</w>', 
 	print('load bpe info')
 	merge_info = load_data(npy_path+'merge_info.npy')
 	cache = load_data(npy_path+'cache.npy', mode='dictionary')
+	print('merge_info size:', len(merge_info))
+	print('cache size:', len(cache), '\n')
+
 
 	for i in range(len(path_list)):
 		path = path_list[i]
@@ -374,7 +416,7 @@ if __name__ == '__main__':
 
 	# multiprocessing, multi_proc: # process,  os.cpu_count(): # cpu processor of current computer
 	# learn bpe from documents
-	learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=30000, multi_proc=os.cpu_count())
+	learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=100, multi_proc=os.cpu_count())
 	# num_merges:37000 => 40297개, 
 
 	# apply bpe to documents
