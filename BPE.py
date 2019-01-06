@@ -84,6 +84,16 @@ def check_merge_info(pairs):
 	return best
 
 
+def _is_A_subset_of_B_list(A, B):
+	# A: ['c', 'e']
+	# B1: ['c', 'e', 'm', 'e', 'n', 't', '</w>']
+	# B2: ['ce', 'm', 'e', 'n', 't', '</w>']
+	# (A, B1): True,  (A, B2): False
+	for i in range(len(B)-1):
+		if B[i] == A[0] and B[i+1] == A[1]:
+			return True
+	return False
+
 
 # frequency가 가장 높은 best_pair 정보를 이용해서 단어를 merge.
 def merge_bpe_word(best_pair_and_word_frequency_list):
@@ -95,10 +105,9 @@ def merge_bpe_word(best_pair_and_word_frequency_list):
 	bigram = re.escape(' '.join(best_pair))
 	p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
 	best_pair_to_string = ''.join(best_pair)
-	best_pair_to_string_with_space = ' '.join(best_pair)
 
 	for word, freq in word_frequency:
-		if best_pair_to_string_with_space in word:
+		if _is_A_subset_of_B_list(A=best_pair, B=word.split()):
 			w_out = p.sub(best_pair_to_string, word) # 만약 ''.join(best_pair): r</w> 이고, word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
 			v_out.append( (w_out, freq) )
 		else:
@@ -138,6 +147,7 @@ def make_bpe2idx(word_frequency_list):
 	return bpe2idx, idx2bpe
 
 
+
 def merge_a_word(merge_info, word, cache={}):
 	# merge_info: list, ['c', 'e']
 	# word: "c e m e n t </w>" => "ce m e n t<\w>" 되어야 함.
@@ -155,12 +165,11 @@ def merge_a_word(merge_info, word, cache={}):
 			if bpe_word.count(' ') == 0:
 				break
 
-			info_to_string_with_space = ' '.join(info)
-			if info_to_string_with_space in bpe_word:
-				bigram = re.escape(info_to_string_with_space)
+			if _is_A_subset_of_B_list(A=info, B=bpe_word.split()):
+				bigram = re.escape(' '.join(info))
 				p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
 
-				# 만약 info_to_string_with_space: 'r </w>' 이고, bpe_word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
+				# 만약 ' '.join(info): 'r </w>' 이고, bpe_word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
 				bpe_word = p.sub(''.join(info), bpe_word)
 
 		# cache upate
@@ -325,7 +334,7 @@ def learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=37000, multi_
 				space_symbol=space_symbol, 
 			) #ok
 		total_word_frequency_dict = merge_dictionary(total_word_frequency_dict, word_frequency_dict)
-
+	print('word_frequency_dict size:', len(total_word_frequency_dict), '\n')
 
 	'''
 	save_data('./word_frequency_dictionary.npy', total_word_frequency_dict)
