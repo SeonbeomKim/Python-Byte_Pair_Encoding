@@ -71,6 +71,62 @@ def get_stats(word_frequency_list):
 	return pairs # tuple을 담고 있는 dictionary 리턴.
 
 
+def delete_some_stats(stats, best_pair):
+	# ac t c t s   [c t]   => ac t ct s
+	#   stats    best_pair   new_stats
+	# [ac, t]	  [c, t]		[ac, t]
+	# [t, c]					[t, ct]
+	# [c, t]					[ct, s]
+	# [t, s]
+
+	# left, right = best_pair 라고 할 때,
+	# left == info[1] 이거나 right == info[0] 이거나 
+	# (left==info[0] and right==info[1]) 이면 stats에서 제거
+
+	# 만약 best_pair[0]이 stats[1]에 있으면 원래 stats[1] 뒤에 best_pair[1]이 있었으면
+	# 저 stats 가 만들어질 수 없으므로 재계산.
+	# 또한 best_pair[1]이 stats[0]에 있으면 원래 stats[0] 앞에 best_pair[1]이 있었다면
+	# 저 stats가 만들어질 수 없으므로 재계산.
+	# 또한 stats가 best_pair랑 동일하면 재계산
+
+	
+	left, right = best_pair	
+	del stats[best_pair] # (left == info[0] and right == info[1])
+	
+	for info in list(stats.keys()):
+		if left == info[1] or right == info[0]:
+			del stats[info]
+			#print('delete from', 'info:',info, 'best_pair:', best_pair)
+	return stats
+
+
+
+# 2-gram frequency table 추출. (불필요한 2gram freq는 재계산 X)
+def selective_get_stats(data):
+	best_pair = data[0]
+	word_frequency_list = data[1] 
+
+	left, right = best_pair	
+	best_pair_to_string = left+right
+
+	# word_frequency_list는 best_pair 기준으로 합쳐졌으므로, best_pair_to_string이 포함된것 계산
+	# 또한 left == info[1] 이거나 right == info[0] 인것을 제거했으므로 이것들만 계산.
+	# 다른경우는 계산 x
+
+	stats = {}
+	for word, freq in word_frequency_list:
+		symbols = word.split()
+		if left in symbols or right in symbols or best_pair_to_string in symbols:
+			for i in range(len(symbols)-1):
+				gram = (symbols[i],symbols[i+1])
+				if left == gram[1] or right == gram[0] or best_pair_to_string in gram:
+					if gram in stats:
+						stats[gram] += freq
+					else:
+						stats[gram] = freq
+	return stats
+	
+
 
 # pairs 중에서 가장 높은 frequency를 갖는 key 리턴.
 def check_merge_info(pairs):
@@ -93,7 +149,8 @@ def merge_bpe_word(best_pair_and_word_frequency_list):
 	p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
 	
 	for word, freq in word_frequency:
-		if best_pair_to_string_with_space in word: 
+		#if best_pair_to_string_with_space in word: 
+		if ' '+best_pair_to_string_with_space+' ' in ' '+word+' ': 
 			w_out = p.sub(best_pair_to_string, word) # 만약 ''.join(best_pair): r</w> 이고, word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
 			v_out.append( (w_out, freq) )
 		else:
@@ -128,10 +185,9 @@ def merge_a_word(merge_info, word, cache={}, high_freq_voca={}):
 			if len(split_bpe_word) == 1: # 더이상 merge할 것이 없는 상황.
 				break
 
-			# 이건 완벽하게 일치하는것만 실행 하지는 않지만 시간체크해보면 완벽하게 체크하는것보다 더 빠름. 
-			# (info: ['m', 'c'], word: 'm cd' 이면 merge할 것이 없지만 if문에서는 true여서 merge수행함.)
 			info_to_string_with_space = ' '.join(info)
-			if info_to_string_with_space in bpe_word: 
+			#if info_to_string_with_space in bpe_word: 
+			if ' '+info_to_string_with_space+' ' in ' '+bpe_word+' ': 
 				bigram = re.escape(info_to_string_with_space)
 				p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
 				bpe_word = p.sub(''.join(info), bpe_word) # 만약 info_to_string_with_space: 'r </w>' 이고, bpe_word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
@@ -168,8 +224,10 @@ def _make_total_word_cache_before_apply_bpe(data):
 
 				if len(split_bpe_word) == 1: # 더이상 merge할 것이 없는 상황.
 					break
+			
 				info_to_string_with_space = ' '.join(info)
-				if info_to_string_with_space in bpe_word: 
+				#if info_to_string_with_space in bpe_word: 
+				if ' '+info_to_string_with_space+' ' in ' '+bpe_word+' ': 
 					bigram = re.escape(info_to_string_with_space)
 					p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
 					bpe_word = p.sub(''.join(info), bpe_word)
@@ -222,7 +280,7 @@ def make_total_word_cache_before_apply_bpe(path_list, npy_path, space_symbol='</
 				zip( multi_merge_info, [total_words[slicing[k]:slicing[k+1]] for k in range(process)], multi_high_freq_voca )
 			)
 		for dic in results:
-			cache = merge_dictionary(cache, dic)
+			cache.update(dic)
 
 		pool.close()
 
@@ -295,15 +353,26 @@ def _learn_bpe(word_frequency_dict, npy_path, num_merges=37000, multi_proc=1):
 		print('multiproc data slicing boundary:', slicing)
 		pool = mp.Pool(process)
 
+		import time
 		for i in tqdm(range(num_merges), ncols=50):
+			
 			# 2gram별 빈도수 추출
-			get_stats_results = pool.map(
-					get_stats, 
-					[word_frequency[slicing[k]:slicing[k+1]] for k in range(process)]
-				)
-			pairs={} # merge 
-			for dic in get_stats_results:
-				pairs = merge_dictionary(pairs, dic)
+			if i == 0:
+				get_stats_results = pool.map(
+						get_stats, 
+						[word_frequency[slicing[k]:slicing[k+1]] for k in range(process)]
+					)
+				pairs={} # merge 
+				for dic in get_stats_results:
+					pairs = merge_dictionary(pairs, dic)
+			else:
+				pairs = delete_some_stats(pairs, best)
+				selective_result = pool.map(
+						selective_get_stats, 
+						zip( [best]*process, [word_frequency[slicing[k]:slicing[k+1]] for k in range(process)] )
+					)
+				for dic in selective_result:
+					pairs = merge_dictionary(pairs, dic)				
 			#######
 
 			# 가장 높은 빈도의 2gram 선정
@@ -327,7 +396,12 @@ def _learn_bpe(word_frequency_dict, npy_path, num_merges=37000, multi_proc=1):
 	else:
 		for i in tqdm(range(num_merges), ncols=50):
 			# 2gram별 빈도수 추출
-			pairs = get_stats(word_frequency) 
+			if i == 0:
+				pairs = get_stats(word_frequency) 
+			else:
+				pairs = delete_some_stats(pairs, best)
+				selective_pairs = selective_get_stats([best, word_frequency])
+				pairs.update(selective_pairs)
 
 			# 가장 높은 빈도의 2gram 선정
 			best = check_merge_info(pairs) # 가장 높은 빈도의 2gram 선정
@@ -443,12 +517,11 @@ test_out_list = [
 	] 		
 
 multi_proc = os.cpu_count()
-voca_threshold = 5 # 빠른 학습을 위해 일정 빈도수 이하의 단어는 bpe learn에 참여시키지 않음.
-final_voca_threshold = 50 # bpe learn으로 학습된 voca중에서 final voca에 참여시킬 voca의 threshold
-
 if multi_proc > 1:
 	import multiprocessing as mp
 
+voca_threshold = 5 # 빠른 학습을 위해 일정 빈도수 이하의 단어는 bpe learn에 참여시키지 않음.
+final_voca_threshold = 50 # bpe learn으로 학습된 voca중에서 final voca에 참여시킬 voca의 threshold
 
 # learn and apply
 if __name__ == '__main__':
@@ -458,10 +531,12 @@ if __name__ == '__main__':
 	
 	# learn bpe from documents
 	learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=35000, voca_threshold=voca_threshold, multi_proc=multi_proc)
-
+	
 	# multi_proc으로 미리 cache 생성해 둠으로써 단순 apply_bpe하는것보다 빠름.
 	make_total_word_cache_before_apply_bpe(path_list, npy_path, multi_proc=multi_proc)
 
 	# apply bpe to documents
 	apply_bpe(path_list, out_bpe_path, out_list, npy_path, final_voca_threshold=final_voca_threshold, space_symbol='</w>', pad_symbol='</p>')
 	apply_bpe(test_path_list, out_bpe_path, test_out_list, npy_path, final_voca_threshold=final_voca_threshold, space_symbol='</w>', pad_symbol='</p>')
+	
+	
