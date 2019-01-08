@@ -25,32 +25,26 @@ def word_split_for_bpe(word, space_symbol='</w>'):
 	return ' '.join(list(word)) + ' ' + space_symbol
 
 
+
 # word frequency 추출.
 def get_word_frequency_dict_from_document(path, space_symbol='</w>'):
 	word_frequency_dict = {}
 
 	with open(path, 'r', encoding='utf-8') as f:
-		for i, sentence in enumerate(f):
-			if i == 50000:
-				break
-			# EOF check
-			if sentence == '\n' or sentence == ' ' or sentence == '':
-				break
+		documents = f.readlines()
 
-			if sentence[-1] == '\n':
-				sentence = sentence[:-1]
+	for i in tqdm(range(len(documents)), ncols=50):
+		sentence = documents[i]
 
-			for word in sentence.split():					
-				# "abc" => "a b c space_symbol"
-				word = word_split_for_bpe(word, space_symbol)
-							
-				# word frequency
-				if word in word_frequency_dict:
-					word_frequency_dict[word] += 1
-				else:
-					word_frequency_dict[word] = 1
-
+		for word in sentence.strip().split():
+			word = word_split_for_bpe(word, space_symbol) # "abc" => "a b c space_symbol"
+			if word in word_frequency_dict:
+				word_frequency_dict[word] += 1
+			else:
+				word_frequency_dict[word] = 1
 	return word_frequency_dict
+
+
 
 
 # merge two dictionary
@@ -84,16 +78,6 @@ def check_merge_info(pairs):
 	return best
 
 
-def _is_A_subset_of_B_list(A, B):
-	# A: ['c', 'e']
-	# B1: ['c', 'e', 'm', 'e', 'n', 't', '</w>']
-	# B2: ['ce', 'm', 'e', 'n', 't', '</w>']
-	# (A, B1): True,  (A, B2): False
-	for i in range(len(B)-1):
-		if B[i] == A[0] and B[i+1] == A[1]:
-			return True
-	return False
-
 
 # frequency가 가장 높은 best_pair 정보를 이용해서 단어를 merge.
 def merge_bpe_word(best_pair_and_word_frequency_list):
@@ -102,155 +86,197 @@ def merge_bpe_word(best_pair_and_word_frequency_list):
 
 	v_out = []
 
-	bigram = re.escape(' '.join(best_pair))
-	p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
-	best_pair_to_string = ''.join(best_pair)
+	best_pair_to_string_with_space = ' '.join(best_pair)
+	best_pair_to_string = ''.join(best_pair) # ['c', 'e'] => 'ce'
 
+	bigram = re.escape(best_pair_to_string_with_space)
+	p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
+	
 	for word, freq in word_frequency:
-		if _is_A_subset_of_B_list(A=best_pair, B=word.split()):
+		if best_pair_to_string_with_space in word: 
 			w_out = p.sub(best_pair_to_string, word) # 만약 ''.join(best_pair): r</w> 이고, word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
 			v_out.append( (w_out, freq) )
 		else:
 			v_out.append( (word, freq) )
 
-	if len(best_pair_and_word_frequency_list) == 3: # multi proc
-		return (best_pair_and_word_frequency_list[2], v_out) # (multiproc 결과 조합할 순서, 결과)
-	else:
-		return v_out
+	return v_out
 
 
 
-
-# from bpe to idx
-def make_bpe2idx(word_frequency_list):
-	bpe2idx = {
-			'</p>':0,
-			'UNK':1,
-			'</g>':2, #go
-			'</e>':3 #eos
-		}	
-	idx2bpe = {
-			0:'</p>',
-			1:'UNK',
-			2:'</g>', #go
-			3:'</e>' #eos
-		}
-	idx = 4
-	
-	for word, _ in word_frequency_list: # word, freq
-		for bpe in word.split():
-			# bpe가 bpe2idx에 없는 경우만 idx 부여.
-			if bpe not in bpe2idx:
-				bpe2idx[bpe] = idx
-				idx2bpe[idx] = bpe
-				idx += 1
-	return bpe2idx, idx2bpe
-
-
-
-def merge_a_word(merge_info, word, cache={}):
+def merge_a_word(merge_info, word, cache={}, high_freq_voca={}):
 	# merge_info: list, ['c', 'e']
 	# word: "c e m e n t </w>" => "ce m e n t<\w>" 되어야 함.
 	
-	#if len(word.split()) == 1:
-	if word.count(' ') == 0:
-		return word
-
 	if word in cache:
 		return cache[word]
+
+	remove_space = word.replace(' ', '')
+	if remove_space in high_freq_voca:
+		cache[word] = remove_space
+		return remove_space
+
 	else:
 		bpe_word = word
-
 		for i, info in enumerate(merge_info):
-			if bpe_word.count(' ') == 0:
+			# 처음엔 무조건 result 초기화됨.  
+			# merge하다가 high_freq_voca에 없는 방향으로 merge가 되면 result에 반영이 안됨.
+			# 즉 가장 최선의 merge 결과 저장.
+			split_bpe_word = bpe_word.split()
+			if all(sub in high_freq_voca or len(sub)==1 or sub=='</w>' for sub in split_bpe_word):
+				result = bpe_word
+
+			if len(split_bpe_word) == 1: # 더이상 merge할 것이 없는 상황.
 				break
 
-			if _is_A_subset_of_B_list(A=info, B=bpe_word.split()):
-				bigram = re.escape(' '.join(info))
+			# 이건 완벽하게 일치하는것만 실행 하지는 않지만 시간체크해보면 완벽하게 체크하는것보다 더 빠름. 
+			# (info: ['m', 'c'], word: 'm cd' 이면 merge할 것이 없지만 if문에서는 true여서 merge수행함.)
+			info_to_string_with_space = ' '.join(info)
+			if info_to_string_with_space in bpe_word: 
+				bigram = re.escape(info_to_string_with_space)
 				p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
-
-				# 만약 ' '.join(info): 'r </w>' 이고, bpe_word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
-				bpe_word = p.sub(''.join(info), bpe_word)
+				bpe_word = p.sub(''.join(info), bpe_word) # 만약 info_to_string_with_space: 'r </w>' 이고, bpe_word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
 
 		# cache upate
-		cache[word] = bpe_word
-		return bpe_word
+		cache[word] = result # 모든 segment가 high_freq_voca에 있거나 분할 불가능인 상황, 즉 최선의 경우만 저장함.
+		return result
 
-'''
-def merge_a_word(merge_info, word, cache={}):
-	# merge_info: list
-	# word: "c e m e n t </w>" => "ce m e n t<\w>" 되어야 함.
-	
-	#if len(word.split()) == 1:
-	if word.count(' ') == 0:
-		return word
 
-	if word in cache:
-		return cache[word]
+def _make_total_word_cache_before_apply_bpe(data):
+	merge_info = data[0] 
+	word_list = data[1]
+	high_freq_voca = data[2] 
+
+	# merge_info: list, ['c', 'e']
+	# word: "c e m e n t </w>" 형태 
+	# high_freq_voca: dict 형태 {voca:freq}
+
+	cache = {}
+	word_list_size = len(word_list)
+	for i in tqdm(range(word_list_size), ncols=50):
+		bpe_word = word_list[i]
+		
+		remove_space = bpe_word.replace(' ', '')
+		if remove_space in high_freq_voca:
+			result = remove_space
+		
+		else:
+			for info in merge_info:
+
+				split_bpe_word = bpe_word.split()
+				if all(sub in high_freq_voca or len(sub)==1 or sub=='</w>' for sub in split_bpe_word):
+					result = bpe_word
+
+				if len(split_bpe_word) == 1: # 더이상 merge할 것이 없는 상황.
+					break
+				info_to_string_with_space = ' '.join(info)
+				if info_to_string_with_space in bpe_word: 
+					bigram = re.escape(info_to_string_with_space)
+					p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
+					bpe_word = p.sub(''.join(info), bpe_word)
+
+		cache[word_list[i]] = result
+	return cache
+
+
+def make_total_word_cache_before_apply_bpe(path_list, npy_path, space_symbol='</w>', multi_proc=1):
+	print('make_total_word_cache_before_apply_bpe','\n')
+
+	print('get word frequency dictionary')
+	total_word_frequency_dict = {}
+	for path in path_list:
+		word_frequency_dict = get_word_frequency_dict_from_document(
+				path=path, 
+				space_symbol=space_symbol, 
+			) #ok
+		total_word_frequency_dict = merge_dictionary(total_word_frequency_dict, word_frequency_dict)
+
+	total_words = list(total_word_frequency_dict.keys())
+	print('total_words size:', len(total_words))
+
+	merge_info = load_data(npy_path+'merge_info.npy')
+	sorted_voca = load_data(npy_path+'sorted_voca.npy')
+	high_freq_voca = [(word, int(freq)) for (word, freq) in sorted_voca if int(freq) >= final_voca_threshold]
+	high_freq_voca = dict(sorted_voca)
+
+	if os.path.isfile(npy_path+"cache.npy"):
+		cache = load_data(npy_path+'cache.npy', mode='dictionary')
 	else:
-		bpe_word = word
-		#bpe_word_to_string = ''.join(bpe_word.split())
-		bpe_word_to_string = bpe_word.replace(' ','')
-		for i, info in enumerate(merge_info):
-			if bpe_word.count(' ') == 0:
-				break
-			info_to_string = ''.join(info)
-			#print(info, bpe_word)
-			#print(info_to_string, bpe_word_to_string)
-			#print()
-			if info_to_string in bpe_word_to_string:
-				print(info, bpe_word)
-				bigram = re.escape(' '.join(info))
-				p = re.compile(r'(?<!\S)' + bigram + r'(?!\S)')
+		cache = {}
+	print('current cache_size:', len(cache), '\n')
 
-				# 만약 info_to_string: r</w> 이고, bpe_word: 'a r </w>' 이면 w_out은 'a r</w>'가 된다.
-				bpe_word = p.sub(info_to_string, bpe_word)
+	# init multiprocessing
+	if multi_proc > 1:
+		process = multi_proc
+		print('# process:', process, '\n')
+		pool = mp.Pool(process)
 
-		# cache upate
-		cache[word] = bpe_word
-		return bpe_word
-'''
+		slice_size =  len(total_words)//process
+		slicing = [k*slice_size for k in range(process)]
+		slicing.append(len(total_words)) # [0, @@, ..., len(word_frequency_dict)] # 총 process+1개 
+		print('multiproc data slicing boundary:', slicing)
+
+		multi_merge_info = [merge_info]*process
+		multi_high_freq_voca = [high_freq_voca]*process
+		results = pool.map(
+				_make_total_word_cache_before_apply_bpe, 
+				zip( multi_merge_info, [total_words[slicing[k]:slicing[k+1]] for k in range(process)], multi_high_freq_voca )
+			)
+		for dic in results:
+			cache = merge_dictionary(cache, dic)
+
+		pool.close()
+
+	else:
+		cache = _make_total_word_cache_before_apply_bpe([merge_info, total_words, high_freq_voca])
+
+	save_data(npy_path+'cache.npy', cache)
+	print('save cache ./cache.npy', 'size:', len(cache))
+
+
+
+def make_sorted_frequency_voca_list(word_frequency):
+	word_frequency_dict = {}
+	for word, freq in word_frequency:
+		# ex: ('B e it r a g</w>', 8)
+		split = word.split() # [B e it r a g</w>]
+		for bpe in split:
+			if bpe not in word_frequency_dict:
+				word_frequency_dict[bpe] = freq
+			else:
+				word_frequency_dict[bpe] += freq
+
+	sorted_voca = sorted(tuple(word_frequency_dict.items()), key=lambda x: x[1], reverse=True)
+	return sorted_voca
+
 
 # 문서를 읽고, bpe 적용. cache 사용할것. apply_bpe에서 사용.
-def _apply_bpe(path, out_path, space_symbol='</w>', merge_info=None, cache={}):
-	start = time.time()
-
-	cache_len = len(cache)
+def _apply_bpe(path, out_path, space_symbol='</w>', merge_info=None, cache={}, high_freq_voca={}):
 
 	# write file
 	o = open(out_path, 'w', newline='', encoding='utf-8')
 	wr = csv.writer(o, delimiter=' ')
 
 	with open(path, 'r', encoding='utf-8') as f:
-		for i, sentence in enumerate(f):
-			row = []
-			if sentence == '\n' or sentence == ' ' or sentence == '':
-				break
+		documents = f.readlines()
+
+	for i in tqdm(range(len(documents)), ncols=50):
+		row = []
+		sentence = documents[i]
+
+		for word in sentence.strip().split():
+			split_word = word_split_for_bpe(word, space_symbol) # "abc" => "a b c space_symbol"
+
+			# merge_info를 이용해서 merge.  "a b c </w>" ==> "ab c</w>"
+			merge = merge_a_word(merge_info, split_word, cache, high_freq_voca)
 			
-			if sentence[-1] == '\n':
-				sentence = sentence[:-1]			
-
-			before_cache_len = len(cache)
-			for word in sentence.split():
-				# "abc" => "a b c space_symbol"
-				split_word = word_split_for_bpe(word, space_symbol)
-				
-				# merge_info를 이용해서 merge.  "a b c </w>" ==> "ab c</w>"
-				merge = merge_a_word(merge_info, split_word, cache)
-				
-				# 안합쳐진 부분은 다른 단어로 인식해서 공백기준 split 처리해서 sentence에 extend
-				row.extend(merge.split())
-			wr.writerow(row)
-
-			if (i+1) % 1000000 == 0:
-				current_cache_len = len(cache)
-				print('out_path:', out_path, 'line:', i+1, 'total cache:', current_cache_len, 'added:', current_cache_len-cache_len)
-				cache_len = current_cache_len
+			# 안합쳐진 부분은 다른 단어로 인식해서 공백기준 split 처리해서 sentence에 extend
+			row.extend(merge.split())
+		wr.writerow(row)
 
 	o.close()
 
 
-def _learn_bpe(word_frequency_dict, num_merges=37000, multi_proc=1):
+def _learn_bpe(word_frequency_dict, npy_path, num_merges=37000, multi_proc=1):
 	#word_frequency_dict = {'l o w </w>' : 1, 'l o w e r </w>' : 1, 'n e w e s t </w>':1, 'w i d e s t </w>':1}
 	
 	merge_info = [] # 합친 정보를 기억하고있다가 다른 데이터에 적용.
@@ -260,140 +286,139 @@ def _learn_bpe(word_frequency_dict, num_merges=37000, multi_proc=1):
 
 	# init multiprocessing
 	if multi_proc > 1:
-		import multiprocessing as mp
-
 		process = multi_proc  #os.cpu_count()
 		print('# process:', process)
 
 		slice_size =  len(word_frequency)//process
 		slicing = [k*slice_size for k in range(process)]
 		slicing.append(len(word_frequency)) # [0, @@, ..., len(word_frequency_dict)] # 총 process+1개 
-		print(slicing)
+		print('multiproc data slicing boundary:', slicing)
 		pool = mp.Pool(process)
 
-	for i in tqdm(range(num_merges), ncols=50):
-		# 2gram별 빈도수 추출
-		if multi_proc > 1:		
+		for i in tqdm(range(num_merges), ncols=50):
+			# 2gram별 빈도수 추출
 			get_stats_results = pool.map(
 					get_stats, 
 					[word_frequency[slicing[k]:slicing[k+1]] for k in range(process)]
 				)
-			# merge
-			pairs={}
+			pairs={} # merge 
 			for dic in get_stats_results:
 				pairs = merge_dictionary(pairs, dic)
-		else:
-			pairs = get_stats(word_frequency) 
-		#######
+			#######
 
-		# 가장 높은 빈도의 2gram 선정
-		best = check_merge_info(pairs) # 가장 높은 빈도의 2gram 선정
-		merge_info.append(best) #merge 하는데 사용된 정보 저장.
-		#######
-		
-		# 가장 높은 빈도의 2gram으로 merge
-		if multi_proc > 1:		
+			# 가장 높은 빈도의 2gram 선정
+			best = check_merge_info(pairs) # 가장 높은 빈도의 2gram 선정
+			merge_info.append(best) #merge 하는데 사용된 정보 저장.
+			#######
+			
+			# 가장 높은 빈도의 2gram으로 merge
 			merge_results = pool.map(
 					merge_bpe_word, 
-					zip( [best]*process, [word_frequency[slicing[k]:slicing[k+1]] for k in range(process)], [k for k in range(process)] )
+					zip( [best]*process, [word_frequency[slicing[k]:slicing[k+1]] for k in range(process)] )
 				)
-			# merge
-			merge_results = dict(merge_results)
-			
-			word_frequency = []		
-			for order in range(process):
-				word_frequency.extend(merge_results[order])
-		else:
-			word_frequency = merge_bpe_word((best, word_frequency)) # 가장 높은 빈도의 2gram을 합침.
-		######
+			word_frequency = [] # merge
+			for result in merge_results:
+				word_frequency.extend(result)
+			######
 
-
-	if multi_proc > 1:		
 		pool.close()
 
-	# 빠른 변환을 위한 cache 저장. 기존 word를 key로, bpe 결과를 value로.	
-	cache = {}
-	for i in range(len(cache_list)): 
-		key = cache_list[i][0]
-		value = word_frequency[i][0]
-		cache[key] = value
 
-	# voca 추출.
-	bpe2idx, idx2bpe = make_bpe2idx(word_frequency)
-	return bpe2idx, idx2bpe, merge_info, cache # dict, dict, list, dict
+	else:
+		for i in tqdm(range(num_merges), ncols=50):
+			# 2gram별 빈도수 추출
+			pairs = get_stats(word_frequency) 
 
-	
+			# 가장 높은 빈도의 2gram 선정
+			best = check_merge_info(pairs) # 가장 높은 빈도의 2gram 선정
+			merge_info.append(best) #merge 하는데 사용된 정보 저장.
+			
+			# 가장 높은 빈도의 2gram으로 merge
+			word_frequency = merge_bpe_word((best, word_frequency))
 
-def learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=37000, multi_proc=1):
-	
-	print('get word frequency dictionary')
-	total_word_frequency_dict = {}
-	for path in path_list:
-		word_frequency_dict = get_word_frequency_dict_from_document(
-				path=path, 
-				space_symbol=space_symbol, 
-			) #ok
-		total_word_frequency_dict = merge_dictionary(total_word_frequency_dict, word_frequency_dict)
-	print('word_frequency_dict size:', len(total_word_frequency_dict), '\n')
 
-	'''
-	save_data('./word_frequency_dictionary.npy', total_word_frequency_dict)
-	print('save ./word_frequency_dictionary.npy', 'size:', len(total_word_frequency_dict), '\n')
-	total_word_frequency_dict = load_data('./word_frequency_dictionary.npy', mode='dictionary')
-	'''
 
-	print('learn bpe')
-	bpe2idx, idx2bpe, merge_info, cache = _learn_bpe(
-			total_word_frequency_dict, 
-			num_merges=num_merges,
-			multi_proc=multi_proc
-		)# dict, dict, list, dict
-
+	# make npy
 	if not os.path.exists(npy_path):
 		print("create" + npy_path + "directory")
 		os.makedirs(npy_path)
 
-	save_data(npy_path+'bpe2idx.npy', bpe2idx)
-	save_data(npy_path+'idx2bpe.npy', idx2bpe)
-	save_data(npy_path+'merge_info.npy', merge_info)
-	save_data(npy_path+'cache.npy', cache)
-	print('save bpe2idx.npy', 'size:', len(bpe2idx))
-	print('save idx2bpe.npy', 'size:', len(idx2bpe))
-	print('save merge_info.npy', 'size:', len(merge_info))
-	print('save cache.npy', 'size:', len(cache))
-	print()
+	sorted_voca = make_sorted_frequency_voca_list(word_frequency)
+	save_data(npy_path+'merge_info.npy', merge_info) # list
+	save_data(npy_path+'sorted_voca.npy', sorted_voca) # dict
+	print('save merge_info.npy', ', size:', len(merge_info))
+	print('save sorted_voca.npy', ', size:', len(sorted_voca))
+
+	
+
+
+def learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=37000, voca_threshold=5, multi_proc=1):
+	# voca_threshold: 빠른 학습을 위해 일정 빈도수 이하의 단어는 bpe learn에 참여시키지 않음.
+
+	print('get word frequency dictionary')
+	total_word_frequency_dict = {}
+	for path in path_list:
+		word_frequency_dict = get_word_frequency_dict_from_document(path=path, space_symbol=space_symbol)
+		total_word_frequency_dict = merge_dictionary(total_word_frequency_dict, word_frequency_dict)
+
+	# 빈도수가 일정 미만인 단어 제외.	
+	total_word_frequency_dict_size = len(total_word_frequency_dict)
+	for item in list(total_word_frequency_dict.items()):
+		if item[1] < voca_threshold: # item[0] is key, item[1] is value
+			del total_word_frequency_dict[item[0]]
+
+	print('frequency word dict size:', total_word_frequency_dict_size)
+	print('threshold applied frequency word dict size:', len(total_word_frequency_dict), 'removed:', total_word_frequency_dict_size-len(total_word_frequency_dict), '\n')
+
+
+	print('learn bpe')
+	_learn_bpe(
+			total_word_frequency_dict, 
+			npy_path=npy_path,
+			num_merges=num_merges,
+			multi_proc=multi_proc
+		)
+	print('\n\n\n')
 
 
 
-def apply_bpe(path_list, out_bpe_path, out_list, npy_path, space_symbol='</w>', pad_symbol='</p>'):
+def apply_bpe(path_list, out_bpe_path, out_list, npy_path, final_voca_threshold=50, space_symbol='</w>', pad_symbol='</p>'):
+	# final_voca_threshold: final voca에 참여시킬 voca의 threshold
+
 	if not os.path.exists(out_bpe_path):
 		print("create" + out_bpe_path + "directory")
 		os.makedirs(out_bpe_path)
 
-	print('load bpe info')
 	merge_info = load_data(npy_path+'merge_info.npy')
-	cache = load_data(npy_path+'cache.npy', mode='dictionary')
-	print('merge_info size:', len(merge_info))
-	print('cache size:', len(cache), '\n')
+	sorted_voca = load_data(npy_path+'sorted_voca.npy')
+	high_freq_voca = [(word, int(freq)) for (word, freq) in sorted_voca if int(freq) >= final_voca_threshold]
+	high_freq_voca = dict(sorted_voca)
+
+	if os.path.isfile(npy_path+"cache.npy"):
+		cache = load_data(npy_path+'cache.npy', mode='dictionary')
+	else:
+		cache = {}
+	print('current cache_size:', len(cache), '\n')
 
 
+	print('apply bpe')
 	for i in range(len(path_list)):
 		path = path_list[i]
 		out_path = out_list[i]
 
-		print('apply bpe', path, out_path)
+		print('path:', path, ', out_path:', out_path)
 		_apply_bpe(
 				path=path, 
 				out_path=out_bpe_path+out_path,
 				space_symbol=space_symbol, 
 				merge_info=merge_info, 
-				cache=cache
+				cache=cache,
+				high_freq_voca=high_freq_voca
 			)
-		print('save ok', out_path)
 		save_data(npy_path+'cache.npy', cache)
-		print('save updated cache ./cache.npy', 'size:', len(cache))
-		print()
-	print()
+		print('save cache.npy', ', size:', len(cache))
+	print('\n\n\n')
+
 
 
 # save directory
@@ -417,19 +442,26 @@ test_out_list = [
 		'./bpe_newstest2016.en', 
 	] 		
 
+multi_proc = os.cpu_count()
+voca_threshold = 5 # 빠른 학습을 위해 일정 빈도수 이하의 단어는 bpe learn에 참여시키지 않음.
+final_voca_threshold = 50 # bpe learn으로 학습된 voca중에서 final voca에 참여시킬 voca의 threshold
+
+if multi_proc > 1:
+	import multiprocessing as mp
+
+
 # learn and apply
 if __name__ == '__main__':
-	print('20190105_test')
 	# if don't use multiprocessing:
 	# learn_bpe(path_list, npy_path, space_symbol='</w>', top_k=None)
-
-	# multiprocessing, multi_proc: # process,  os.cpu_count(): # cpu processor of current computer
+	# multi_proc: # process,  os.cpu_count(): # cpu processor of current computer
+	
 	# learn bpe from documents
-	learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=100, multi_proc=os.cpu_count())
-	# num_merges:37000 => 40297개, 
+	learn_bpe(path_list, npy_path, space_symbol='</w>', num_merges=35000, voca_threshold=voca_threshold, multi_proc=multi_proc)
+
+	# multi_proc으로 미리 cache 생성해 둠으로써 단순 apply_bpe하는것보다 빠름.
+	make_total_word_cache_before_apply_bpe(path_list, npy_path, multi_proc=multi_proc)
 
 	# apply bpe to documents
-	apply_bpe(path_list, out_bpe_path, out_list, npy_path, space_symbol='</w>', pad_symbol='</p>')
-	apply_bpe(test_path_list, out_bpe_path, test_out_list, npy_path, space_symbol='</w>', pad_symbol='</p>')
-
-
+	apply_bpe(path_list, out_bpe_path, out_list, npy_path, final_voca_threshold=final_voca_threshold, space_symbol='</w>', pad_symbol='</p>')
+	apply_bpe(test_path_list, out_bpe_path, test_out_list, npy_path, final_voca_threshold=final_voca_threshold, space_symbol='</w>', pad_symbol='</p>')
