@@ -33,7 +33,7 @@ multi_proc = os.cpu_count()
 #if multi_proc > 1:
 #	import multiprocessing as mp
 
-voca_threshold = 5 # 빠른 학습을 위해 일정 빈도수 이하의 단어는 bpe learn에 참여시키지 않음.
+voca_threshold = 1#5 # 빠른 학습을 위해 일정 빈도수 이하의 단어는 bpe learn에 참여시키지 않음.
 final_voca_threshold = 50 # bpe learn으로 학습된 voca중에서 final voca에 참여시킬 voca의 threshold
 
 # learn and apply

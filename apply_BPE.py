@@ -135,44 +135,6 @@ def apply_bpe(path_list, out_bpe_path, out_list, voca_npy_path, new_voca_npy_pat
 	print('\n\n\n')
 
 
-'''
-def save_vocabulary(path_list, npy_path):
-	print('save vocabulary')
-
-	bpe2idx = {'</p>':0, '</UNK>':1, '</g>':2, '</e>':3}	
-	idx2bpe = ['</p>', '</UNK>', '</g>', '</e>']
-	idx = 4
-
-	word_frequency_dict = {}
-	for path in path_list:
-		with open(path, 'r', encoding='utf-8') as f:
-			documents = f.readlines()
-
-		for i in tqdm(range(len(documents)), ncols=50):
-			sentence = documents[i]
-			for word in sentence.strip().split():
-				if word in word_frequency_dict:
-					word_frequency_dict[word] += 1
-				else:
-					word_frequency_dict[word] = 1
-
-	sorted_voca = sorted(tuple(word_frequency_dict.items()), key=lambda x: x[1], reverse=True)
-	
-	o = open(npy_path+'vocabulary.txt', 'w', encoding='utf-8')
-	o.write('word' + ' ' + 'freq' + ' ' + 'idx' +'\n')
-	for word, freq in sorted_voca:
-		bpe2idx[word] = idx
-		idx2bpe.append(word)
-		o.write(word + ' ' + str(freq) + ' ' + str(idx) +'\n')
-		idx += 1
-	o.close()
-
-	save_data(npy_path+'bpe2idx.npy', bpe2idx)
-	save_data(npy_path+'idx2bpe.npy', idx2bpe)
-	print('save bpe2idx, size:', len(bpe2idx))
-	print('save idx2bpe, size:', len(idx2bpe))
-'''
-
 
 """
 npy_path = './npy/' # path of bpe2idx, idx2bpe, merge_info and cache 
