@@ -30,3 +30,5 @@ Byte Pair Encoding (BPE)
 ## dataset/
    * WMT17 example: http://data.statmt.org/wmt17/translation-task/preprocessed/
    
+## Reference
+   * # https://lovit.github.io/nlp/2018/04/02/wpm/
