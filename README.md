@@ -28,5 +28,5 @@ Byte Pair Encoding (BPE)
             * bpe_applied_data (from final_voca data)
    
 ## dataset/
-   * WMT17 example
+   * WMT17 example: http://data.statmt.org/wmt17/translation-task/preprocessed/
    
