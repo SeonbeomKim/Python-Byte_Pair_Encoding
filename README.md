@@ -13,9 +13,9 @@ Byte Pair Encoding (BPE)
       
 ## Code
    * learn_BPE.py
-      * functions of bpe learn
+      * functions for bpe learn
    * apply_BPE.py
-      * functions of bpe apply
+      * functions for bpe apply
    * run.py
       * run bpe learn and apply
       * MakeFile:
