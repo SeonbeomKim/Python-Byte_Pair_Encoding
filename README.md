@@ -11,21 +11,28 @@ Byte Pair Encoding (BPE)
 ## Paper
    * Byte-Pair Encoding (BPE): https://arxiv.org/abs/1508.07909  
       
-## Code
-   * learn_BPE.py
-      * functions for bpe learn
-   * apply_BPE.py
-      * functions for bpe apply
-   * run.py
-      * run bpe learn and apply
-      * MakeFile:
-         * npy/
-            * merge_info.npy (not used)
-            * voca_from_learn_BPE.npy (voca freq from bpe learn)
-            * semi_final_voca.[npy, txt] (voca freq from bpe apply with voca_from_learn_BPE)
-            * final_voca.[npy, txt] (voca freq from bpe apply with threshold applied semi_final_voca)       
-         * bpe_dataset/
-            * bpe_applied_data (from final_voca data)
+## Command
+   * learn BPE from document
+```
+python bpe_learn.py 
+-train_path 1_document 2_document ... K_document
+-voca_out_path voca_path/voca_file_name
+-bpe_out_path 1_BPE_document 2_BPE_document ... K_BPE_document
+-train_voca_threshold 1 
+-final_voca_size 30000 
+-num_merges 30000 
+-multi_proc=-1
+
+multi_proc: -1(use all process), 1(not use)
+```
+
+   * apply BPE to document
+```
+python bpe_apply.py
+-data_path 1_document 2_document ... K_document
+-voca_path voca_path/voca_file_name
+-bpe_out_path 1_BPE_document 2_BPE_document ... K_BPE_document
+```
    
 ## dataset/
    * WMT17 example: http://data.statmt.org/wmt17/translation-task/preprocessed/
