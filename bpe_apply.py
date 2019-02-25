@@ -3,9 +3,23 @@ import os
 import bpe_module.apply_BPE as apply_BPE
 
 parser = argparse.ArgumentParser(description='file path')
-parser.add_argument('-data_path', required=True, nargs='+')
-parser.add_argument('-voca_path', required=True)
-parser.add_argument('-bpe_out_path', required=True, nargs='+')
+parser.add_argument(
+		'-data_path', 
+		help="Multiple documents path",
+		required=True, 
+		nargs='+'
+	)
+parser.add_argument(
+		'-voca_path', 
+		help="Vocabulary for BPE apply",
+		required=True
+	)
+parser.add_argument(
+		'-bpe_out_path', 
+		help="Multile BPE_applied path",
+		required=True, 
+		nargs='+'
+	)
 
 args = parser.parse_args()
 

@@ -98,7 +98,7 @@ def _apply_bpe(path, out_path, space_symbol='</w>', sorted_voca={}):
 	o.close()
 
 
-def apply_bpe(path_list, out_list, voca_path, new_voca_path=None, final_voca_threshold=1, final_voca_num=None, space_symbol='</w>'):
+def apply_bpe(path_list, out_list, voca_path, new_voca_path=None, final_voca_threshold=1, final_voca_num=0, space_symbol='</w>'):
 	# final_voca_threshold: final voca에 참여시킬 voca의 threshold
 	print('apply bpe')
 
@@ -139,6 +139,7 @@ def apply_bpe(path_list, out_list, voca_path, new_voca_path=None, final_voca_thr
 			new_sorted_voca = get_vocabulary(bpe_path_list)[:final_voca_num]
 		else:
 			new_sorted_voca = get_vocabulary(bpe_path_list)
+			new_sorted_voca = [(word, int(freq)) for (word, freq) in new_sorted_voca if int(freq) >= final_voca_threshold]
 
 		save_voca(new_voca_path, new_sorted_voca)
 		print(new_voca_path, "data size:", len(new_sorted_voca))
